@@ -1,0 +1,162 @@
+= Using Ansible Execution Environments
+
+This demo walks through the steps of creating a custom Execution Environment (EE) for use with the Ansible Automation Platform.
+
+== Setting up and running the demo
+
+We are going to do our EE work from within a python virtualenv. 
+
+NOTE: If this is a RHEL8/RHEL9 host with access to the right repos, this could be done using the official rpms for the various tools we are using. 
+Since we are basing our EE on an "official" EE from Red Hat and the code all runs inside the EE, the exact versions of ansible-builder and 
+ansible-navigator will generally not matter.
+
+The host will need internet access and the ability to talk to a local container registry (we use Private Automation Hub).
+
+=== From the CLI
+
+On a RHEL8 host:
+
+NOTE: This will likely work on any recent Linux like OS, perhaps using docker rather than podman (for macOS say)
+
+.Install/Run Steps
+. Install packages: `sudo yum install podman git`
+. Create a python3 virtual environment: `python3 -m venv ansible`
+. Activate the virtual environment: `. ansible/bin/activate`
+. Install packages: `pip install --upgrade pip wheel && pip install ansible ansible-navigator ansible-builder`
+. Clone this project: `git clone https://github.com/lotaris-xx/ee-demo.git`
+. Switch to the project dir: `cd ee-demo`
+. Log into the Red Hat container registry: `podman login registry.redhat.io`
+. Run the supplied script to create the new image: `./builder.sh`
+. Execute the playbook using the new execution environment: `ansible-navigator run site.yml -i inventory  --pp missing --mode=stdout`
+. Log into the local Private Automation Hub (PAH)): `podman login --tls-verify=false <pah fqdn or ip>`
+. Grab the container image id from local registry: `podman images`
+. Push the execution environment into a local PAH: `podman push --tls-verify=false --remove-signatures <image id> docker://<pah fqdn or ip>/ee-vmware-rest:v1.0`
+. Execute the playbook using the EE from the local PAH:  `ansible-navigator run site.yml -i inventory --eei <pah fqdn or ip>/ee-vmware-rest:v1.0 --pp missing --mode=stdout`
+
+== Explanation of the various files in the repo
+
+=== ansible-navigator.yml
+
+This is the configuration file for ansible-navigator. The possible contents are described at: 
+https://ansible-navigator.readthedocs.io/en/latest/settings/[ansible-navigator-settings]
+
+.ansible-navigator.yml
+[source,yaml]
+----
+---
+ansible-navigator:
+   execution-environment:
+     container-engine: podman
+     image: localhost/ee-vmware-rest
+     pull:
+       policy: never
+       arguments:
+         - "--tls-verify=false"
+     enabled: True
+     environment-variables:
+       pass:
+         - VMWARE_HOST
+         - VMWARE_USER
+         - VMWARE_PASSWORD
+         - VMWARE_VALIDATE_CERTS
+
+   playbook-artifact:
+        enable: False
+----
+
+=== bindep.txt
+
+This file describes what binary dependencies (like RPMs and such) should be installed inside the EE.
+
+.bindep.txt
+----
+git [platform:rpm]
+----
+
+=== builder.sh
+
+This script runs ansible-builder to generate a new EE.
+
+.builder.sh
+[source,shell]
+----
+#!/bin/bash
+#  Run ansible-builder to create a new EE from the supported ee-minimal-rhel8 image
+
+ansible-builder build -f vmware.yml --prune-images --tag ee-vmware-rest --build-arg EE_BASE_IMAGE=registry.redhat.io/ansible-automation-platform-22/ee-minimal-rhel8 -v3
+----
+
+=== requirements.txt
+
+Here we place the names of python modules that will be installed inside the EE using pip.
+
+.requirements.txt
+----
+aiohttp
+----
+
+NOTE: The vmware_rest collection depends on this module, so it would be pulled in automatically in this case.
+
+=== requirements.yml
+
+This file is used to list any collections that need to be pulled into the EE. 
+
+NOTE: Typically these are collections from ansible-galaxy or cloud.redhat.com, perhaps pulled through PAH. 
+Typically local collections would not be pulled into an EE at build time as EEs, rather they would come in
+via a `collections/requirements.yml` file.
+
+.requirements.yml
+[source,yaml]
+----
+---
+collections:
+    - vmware.vmware_rest
+    - ansible.posix
+----
+
+=== site.yml
+
+This is a basic playbook used to demonstrate ansible running inside the EE.
+
+.site.yml
+[source,yaml]]
+----
+- hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Run
+      debug:
+        msg: Running inside EE
+----
+
+=== vmware.yml
+
+This is the main driver file for ansible-builder that points it at the other configuration files.
+
+.vmware.yml
+[source,yaml]
+----
+---
+version: 1
+dependencies:
+  galaxy: requirements.yml
+  python: requirements.txt
+  system: bindep.txt
+
+----
+
+== Cleaning up the working directory
+
+To clean up the directory run: `make clean`
+
+== Links for additional information
+
+Here are some links to sites with more information:
+
+https://ansible-builder.readthedocs.io/en/stable/[Ansible Builder Docs]
+
+https://ansible-navigator.readthedocs.io/en/latest/settings/[Ansible Navigator Docs]
+
+https://access.redhat.com/documentation/en-us/red_hat_ansible_automation_platform/2.1[AAP Product Documentation]
+
+https://docs.ansible.com/automation-controller/latest/html/administration/index.html[Automation Controller Docs]

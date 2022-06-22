@@ -1,0 +1,5 @@
+*.bak
+*~
+context
+*swp
+ansible-navigator.log

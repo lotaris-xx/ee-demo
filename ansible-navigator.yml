@@ -1,0 +1,20 @@
+# cspell:ignore cmdline, workdir
+---
+ansible-navigator:
+   execution-environment:
+     container-engine: podman
+     image: localhost/ee-vmware-rest
+     pull:
+       policy: never
+       arguments:
+         - "--tls-verify=false"
+     enabled: True
+     environment-variables:
+       pass:
+         - VMWARE_HOST
+         - VMWARE_USER
+         - VMWARE_PASSWORD
+         - VMWARE_VALIDATE_CERTS
+
+   playbook-artifact:
+        enable: False

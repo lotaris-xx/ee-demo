@@ -1,0 +1,4 @@
+---
+collections:
+    - vmware.vmware_rest
+    - ansible.posix
